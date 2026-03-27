@@ -7,7 +7,7 @@ from PIL import Image
 import json
 
 # Configuração da página
-st.set_page_config(page_title="Gestão Financeira Histórica", layout="wide", page_icon="💰")
+st.set_page_config(page_title="Gestão Wil & Ju", layout="wide", page_icon="💰")
 
 # --- CONEXÃO SUPABASE ---
 @st.cache_resource
@@ -23,117 +23,84 @@ try:
 except Exception as e:
     st.error(f"Erro ao carregar IA: {e}")
 
-st.title("💰 Sistema de Gestão Financeira Wil & Ju")
+st.title("💰 Sistema Financeiro - Wil & Ju")
 
-# --- SELEÇÃO DE MÊS E ANO (FILTRO GLOBAL) ---
-# Este filtro define onde os dados serão visualizados e ONDE serão salvos
+# --- FILTRO GLOBAL ---
 col_m1, col_m2 = st.columns(2)
 with col_m1:
-    meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", 
-             "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-    mes_nome = st.selectbox("Selecione o Mês para Visualizar/Lançar:", meses, index=datetime.now().month - 1)
+    meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    mes_nome = st.selectbox("Mês para Visualizar:", meses, index=datetime.now().month - 1)
     mes_num = meses.index(mes_nome) + 1
 with col_m2:
     ano = st.number_input("Ano:", value=2026, step=1)
 
-# --- ABAS ---
-aba1, aba2 = st.tabs(["📊 Painel de Controle", "📸 Escanear Recibo"])
+aba1, aba2 = st.tabs(["📊 Painel Histórico", "📸 Escanear Recibo"])
 
 with aba1:
-    # --- ÁREA DE RENDAS (Fixas Sugeridas) ---
-    with st.expander("💵 Configuração de Renda do Mês", expanded=True):
-        st.info("Os valores abaixo são sugeridos com base na sua planilha, mas você pode alterá-los.")
+    # --- RENDAS FIXAS ---
+    with st.expander("💵 Rendas do Mês", expanded=False):
         c1, c2 = st.columns(2)
-        with c1:
-            f_wil = st.number_input("Salário Wil (Fixo)", value=5500.0)
-            e_wil = st.number_input("Extra Wil", value=0.0)
-        with c2:
-            f_ju = st.number_input("Salário Ju (Fixo)", value=5500.0)
-            e_ju = st.number_input("Extra Ju", value=0.0)
-        
-        renda_total_mes = f_wil + e_wil + f_ju + e_ju
+        f_wil = c1.number_input("Salário Wil", value=5500.0)
+        f_ju = c2.number_input("Salário Ju", value=5500.0)
+        renda_total_mes = f_wil + f_ju
 
-    # --- PROCESSAMENTO DE DADOS ---
     try:
         res = supabase.table("transacoes").select("*").execute()
         df = pd.DataFrame(res.data)
-
         if not df.empty:
             df['data'] = pd.to_datetime(df['data'])
-            
-            # 1. Filtro do Mês Selecionado
             df_mes = df[(df['data'].dt.month == mes_num) & (df['data'].dt.year == ano)]
+            total_gasto_mes = df_mes["valor_planeado"].sum()
             
-            # 2. Acumulado Histórico (Desde 2014 até o infinito)
-            # Soma todas as despesas já registradas no banco
-            total_historico_despesas = df["valor_planeado"].sum()
-            
-            # 3. Cálculos do Mês Selecionado
-            total_gastos_mes = df_mes["valor_planeado"].sum()
-            sobra_mes = renda_total_mes - total_gastos_mes
-
-            # --- CARTOES DE MÉTRICA ---
-            st.divider()
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric(f"Renda {mes_nome}", f"R$ {renda_total_mes:,.2f}")
-            m2.metric(f"Gastos {mes_nome}", f"R$ {total_gastos_mes:,.2f}")
-            m3.metric("Saldo do Mês", f"R$ {sobra_mes:,.2f}", delta=f"{sobra_mes:,.2f}")
-            m4.metric("TOTAL GASTO HISTÓRICO", f"R$ {total_historico_despesas:,.2f}", help="Soma de todos os lançamentos desde 2014")
+            m1, m2, m3 = st.columns(3)
+            m1.metric(f"Gasto {mes_nome}", f"R$ {total_gasto_mes:,.2f}")
+            m2.metric("Saldo", f"R$ {(renda_total_mes - total_gasto_mes):,.2f}")
+            m3.metric("Acumulado Geral", f"R$ {df['valor_planeado'].sum():,.2f}")
 
             st.divider()
-            
             if not df_mes.empty:
-                st.subheader(f"Listagem de Gastos: {mes_nome} / {ano}")
-                st.dataframe(df_mes[["data", "user_id", "categoria", "subcategoria", "valor_planeado"]], use_container_width=True)
-                
-                # Gráfico de Categorias
-                st.write("### Gastos por Categoria")
-                graf_data = df_mes.groupby("categoria")["valor_planeado"].sum()
-                st.bar_chart(graf_data)
-            else:
-                st.info(f"Nenhum lançamento encontrado para {mes_nome} de {ano}.")
-        else:
-            st.warning("O Banco de dados está vazio. Comece a importar seus dados de 2014!")
-
-    except Exception as e:
-        st.error(f"Erro ao conectar com o banco: {e}")
+                df_exibir = df_mes.copy().sort_values(by="data")
+                df_exibir['data'] = df_exibir['data'].dt.strftime('%d/%m/%Y')
+                st.dataframe(df_exibir[["data", "user_id", "categoria", "subcategoria", "valor_planeado"]], use_container_width=True)
+    except: st.warning("Erro ao carregar banco.")
 
 with aba2:
-    st.header("📸 Scanner de Recibos")
-    user_scan = st.radio("Registrar para:", ["wil", "ju"], horizontal=True)
-    up = st.file_uploader("Arraste a foto do recibo", type=["jpg", "png", "jpeg"])
+    st.header("📸 Scanner com Edição")
+    user_scan = st.radio("Responsável:", ["wil", "ju"], horizontal=True)
+    up = st.file_uploader("Foto do recibo", type=["jpg", "png", "jpeg"])
     
     if up:
         img = Image.open(up)
-        st.image(img, width=300)
+        st.image(img, width=250)
         
-        if st.button("Analisar Recibo"):
-            with st.spinner("O Gemini 2.5 está lendo a nota..."):
-                try:
-                    prompt = "Extraia valor e local. Retorne JSON: {'categoria': '', 'valor': 0.0, 'local': ''}"
-                    response = model.generate_content([prompt, img])
-                    res_text = response.text.replace('```json', '').replace('```', '').strip()
-                    st.session_state['dados_scan'] = json.loads(res_text)
-                    st.success("Leitura concluída!")
-                    st.json(st.session_state['dados_scan'])
-                except Exception as e:
-                    st.error(f"Erro na IA: {e}")
+        if st.button("1. Analisar com IA"):
+            with st.spinner("IA lendo..."):
+                prompt = """Retorne APENAS um JSON: {"valor": 0.0, "local": "nome loja", "categoria": "Lazer", "data_recibo": "YYYY-MM-DD"}"""
+                response = model.generate_content([prompt, img])
+                st.session_state['temp_dados'] = json.loads(response.text.replace('```json', '').replace('```', '').strip())
 
-        if 'dados_scan' in st.session_state:
-            if st.button("Confirmar e Salvar no Banco"):
-                dados = st.session_state['dados_scan']
-                # A data é salva no mês/ano que você escolheu no seletor do topo!
-                data_para_banco = f"{ano}-{mes_num:02d}-01"
-                
+        # --- CAMPOS DE EDIÇÃO (O que tu pediste) ---
+        if 'temp_dados' in st.session_state:
+            st.divider()
+            st.subheader("2. Confira e Edite os dados:")
+            dados = st.session_state['temp_dados']
+            
+            # Criamos campos de entrada com os dados que a IA leu
+            ed_data = st.date_input("Data do Recibo:", value=datetime.strptime(dados.get('data_recibo', f"{ano}-{mes_num:02d}-01"), "%Y-%m-%d"))
+            ed_local = st.text_input("Subcategoria (Local/Item):", value=dados.get('local', ''))
+            ed_cat = st.text_input("Categoria:", value=dados.get('categoria', 'Outros'))
+            ed_val = st.number_input("Valor (R$):", value=float(dados.get('valor', 0.0)))
+
+            if st.button("3. Confirmar e Salvar no Supabase"):
                 payload = {
                     "user_id": user_scan,
-                    "categoria": dados.get('categoria', 'Outros'),
-                    "valor_planeado": float(dados.get('valor', 0)),
-                    "subcategoria": dados.get('local', 'Scanner'),
-                    "data": data_para_banco
+                    "categoria": ed_cat,
+                    "valor_planeado": ed_val,
+                    "subcategoria": ed_local,
+                    "data": ed_data.strftime("%Y-%m-%d")
                 }
-                
                 supabase.table("transacoes").insert(payload).execute()
-                st.success(f"Lançamento salvo com sucesso em {mes_nome}/{ano}!")
-                del st.session_state['dados_scan']
+                st.success("Salvo com sucesso!")
+                st.balloons()
+                del st.session_state['temp_dados']
                 st.cache_resource.clear()
