@@ -20,7 +20,7 @@ supabase = init_supabase()
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     # Usando gemini-1.5-flash que é mais rápido e ideal para recibos
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
     st.error(f"Erro ao carregar IA: {e}")
 
