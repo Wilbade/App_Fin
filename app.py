@@ -21,7 +21,7 @@ supabase = init_supabase()
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     # Voltando para a versão que você confirmou que funciona
-    model = genai.GenerativeModel('gemini-2.0-flash') # Tente 2.0 ou 2.5 conforme sua conta permitir
+    model = genai.GenerativeModel('gemini-2.5-flash') # Tente 2.0 ou 2.5 conforme sua conta permitir
 except Exception as e:
     st.error(f"Erro ao carregar IA: {e}")
 
