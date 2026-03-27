@@ -22,7 +22,7 @@ try:
 except:
     st.error("Erro ao carregar IA")
 
-st.title("💰 Gestão Financeira Inteligente")
+st.title("💰 Gestão Financeira Family")
 
 # --- ABAS ---
 aba1, aba2 = st.tabs(["📊 Visão Geral da Casa", "📸 Lançar Recibos (IA)"])
