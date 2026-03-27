@@ -6,64 +6,80 @@ import google.generativeai as genai
 from PIL import Image
 
 # Configuração da página
-st.set_page_config(page_title="Finanças Wil e Ju", layout="wide")
+st.set_page_config(page_title="Gestão Wil & Ju", layout="wide")
 
-if "gastos_reais" not in st.session_state:
-    st.session_state.gastos_reais = []
-
-# Conexão com o Supabase (usando segredos que vamos configurar depois)
+# Conexão Supabase
 @st.cache_resource
 def init_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-try:
-    supabase = init_supabase()
-except Exception as e:
-    st.error(f"Erro ao conectar no Banco: {e}")
+supabase = init_supabase()
 
-# Configuração do Gemini
+# Configuração Gemini
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     model = genai.GenerativeModel('gemini-1.5-flash')
-except Exception as e:
-    st.error(f"Erro ao conectar no Gemini: {e}")
-
-st.title("💸 Planejado vs Real - Wil & Ju")
-
-usuario = st.selectbox("Quem está usando?", ["wil", "ju"])
-
-st.header("📸 Escanear Recibo")
-uploaded_file = st.file_uploader("Tire uma foto do recibo", type=["jpg", "png", "jpeg"])
-
-if uploaded_file:
-    img = Image.open(uploaded_file)
-    st.image(img, caption="Recibo", width=300)
-    
-    if st.button("Analisar com IA"):
-        with st.spinner("Lendo nota..."):
-            prompt = "Analise este recibo. Extraia a CATEGORIA e o VALOR TOTAL. Responda apenas JSON, ex: {'categoria': 'HABITAÇÃO', 'valor': 150.50}"
-            response = model.generate_content([prompt, img])
-            try:
-                txt = response.text.replace('```json', '').replace('```', '').strip()
-                dados = json.loads(txt)
-                dados["user_id"] = usuario
-                st.session_state.gastos_reais.append(dados)
-                st.success(f"Capturado: {dados['categoria']} - R$ {dados['valor']}")
-            except:
-                st.error("Erro na leitura.")
-
-st.divider()
-st.header(f"📊 Resumo: {usuario.upper()}")
-
-try:
-    res = supabase.table("transacoes").select("*").eq("user_id", usuario).execute()
-    df_plan = pd.DataFrame(res.data)
-    if not df_plan.empty:
-        plan_agrupado = df_plan.groupby("categoria")["valor_planeado"].sum().reset_index()
-        st.bar_chart(plan_agrupado.set_index("categoria"))
-    else:
-        st.info("Sem dados planejados no banco.")
 except:
-    st.warning("Conectando ao banco de dados...")
+    st.error("Erro ao carregar IA")
+
+st.title("💰 Gestão Financeira Inteligente")
+
+# --- ABAS ---
+aba1, aba2 = st.tabs(["📊 Visão Geral da Casa", "📸 Lançar Recibos (IA)"])
+
+with aba1:
+    st.header("Resumo de Rendas e Gastos")
+    
+    # --- ÁREA DE RENDAS (MALEÁVEL) ---
+    with st.expander("💵 Configurar Rendas deste Mês", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Wil")
+            fixa_wil = st.number_input("Salário Fixo (Wil)", value=0.0, step=100.0)
+            extra_wil = st.number_input("Renda Extra (Wil)", value=0.0, step=50.0)
+        with col2:
+            st.subheader("Ju")
+            fixa_ju = st.number_input("Salário Fixo (Ju)", value=0.0, step=100.0)
+            extra_ju = st.number_input("Renda Extra (Ju)", value=0.0, step=50.0)
+        
+        renda_total = fixa_wil + extra_wil + fixa_ju + extra_ju
+    
+    # --- BUSCA DADOS NO SUPABASE ---
+    res = supabase.table("transacoes").select("*").execute()
+    df = pd.DataFrame(res.data)
+    
+    if not df.empty:
+        gasto_wil = df[df["user_id"] == "wil"]["valor_planeado"].sum()
+        gasto_ju = df[df["user_id"] == "ju"]["valor_planeado"].sum()
+        total_gastos = gasto_wil + gasto_ju
+        saldo_final = renda_total - total_gastos
+
+        # --- CARTOES DE RESULTADO ---
+        st.divider()
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Renda Total", f"R$ {renda_total:,.2f}")
+        c2.metric("Total Gastos", f"R$ {total_gastos:,.2f}", delta=f"-{total_gastos:,.2f}", delta_color="inverse")
+        c3.metric("Saldo Sobrando", f"R$ {saldo_final:,.2f}", delta=f"{saldo_final:,.2f}")
+        c4.write("✅ Dados atualizados do Supabase")
+
+        st.divider()
+        st.subheader("Gráfico Comparativo por Categoria")
+        # Prepara dados para o gráfico comparando Wil e Ju por categoria
+        graf_data = df.groupby(["categoria", "user_id"])["valor_planeado"].sum().unstack().fillna(0)
+        st.bar_chart(graf_data)
+    else:
+        st.warning("Ainda não existem transações no banco de dados.")
+
+with aba2:
+    st.header("👤 Área do Usuário & Recibos")
+    usuario = st.selectbox("Quem está lançando?", ["wil", "ju"])
+    
+    uploaded_file = st.file_uploader("Subir foto do recibo", type=["jpg", "png", "jpeg"])
+    if uploaded_file:
+        img = Image.open(uploaded_file)
+        st.image(img, width=250)
+        if st.button("Escanear com IA"):
+            with st.spinner("IA analisando..."):
+                prompt = "Extraia categoria e valor total deste recibo em JSON: {'categoria': '', 'valor': 0.0}"
+                response = model.generate_content([prompt, img])
+                st.write(response.text) # Mostra o resultado da leitura
