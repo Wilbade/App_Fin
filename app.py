@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
-import json
+from datetime import datetime
 from supabase import create_client, Client
 import google.generativeai as genai
 from PIL import Image
+import json
 
 # Configuração da página
 st.set_page_config(page_title="Gestão Wil & Ju", layout="wide")
@@ -22,64 +23,82 @@ try:
 except:
     st.error("Erro ao carregar IA")
 
-st.title("💰 Gestão Financeira Family")
+st.title("💰 Gestão Financeira Mensal")
+
+# --- SELEÇÃO DE MÊS E ANO (FILTRO GLOBAL) ---
+col_m1, col_m2 = st.columns(2)
+with col_m1:
+    meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", 
+             "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    mes_nome = st.selectbox("Selecione o Mês:", meses, index=datetime.now().month - 1)
+    mes_num = meses.index(mes_nome) + 1
+with col_m2:
+    ano = st.number_input("Ano:", value=2025, step=1)
 
 # --- ABAS ---
-aba1, aba2 = st.tabs(["📊 Visão Geral da Casa", "📸 Lançar Recibos (IA)"])
+aba1, aba2 = st.tabs(["📊 Visão Mensal", "📸 Escanear Recibo"])
 
 with aba1:
-    st.header("Resumo de Rendas e Gastos")
+    st.header(f"Resumo de {mes_nome} / {ano}")
     
-    # --- ÁREA DE RENDAS (MALEÁVEL) ---
-    with st.expander("💵 Configurar Rendas deste Mês", expanded=True):
-        col1, col2 = st.columns(2)
-        with col1:
+    # --- ÁREA DE RENDAS ---
+    with st.expander("💵 Rendas deste Mês (Fixa + Extra)", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
             st.subheader("Wil")
-            fixa_wil = st.number_input("Salário Fixo (Wil)", value=0.0, step=100.0)
-            extra_wil = st.number_input("Renda Extra (Wil)", value=0.0, step=50.0)
-        with col2:
+            f_wil = st.number_input("Salário (Wil)", value=0.0, key="fw")
+            e_wil = st.number_input("Extra (Wil)", value=0.0, key="ew")
+        with c2:
             st.subheader("Ju")
-            fixa_ju = st.number_input("Salário Fixo (Ju)", value=0.0, step=100.0)
-            extra_ju = st.number_input("Renda Extra (Ju)", value=0.0, step=50.0)
-        
-        renda_total = fixa_wil + extra_wil + fixa_ju + extra_ju
-    
-    # --- BUSCA DADOS NO SUPABASE ---
+            f_ju = st.number_input("Salário (Ju)", value=0.0, key="fj")
+            e_ju = st.number_input("Extra (Ju)", value=0.0, key="ej")
+        renda_mes = f_wil + e_wil + f_ju + e_ju
+
+    # --- BUSCA E FILTRO DE DADOS ---
     res = supabase.table("transacoes").select("*").execute()
     df = pd.DataFrame(res.data)
-    
+
     if not df.empty:
-        gasto_wil = df[df["user_id"] == "wil"]["valor_planeado"].sum()
-        gasto_ju = df[df["user_id"] == "ju"]["valor_planeado"].sum()
-        total_gastos = gasto_wil + gasto_ju
-        saldo_final = renda_total - total_gastos
+        # Converte a coluna data para formato de data real do Python
+        df['data'] = pd.to_datetime(df['data'])
+        
+        # FILTRO MÁGICO: Filtra apenas o mês e ano selecionados
+        df_mes = df[(df['data'].dt.month == mes_num) & (df['data'].dt.year == ano)]
+        
+        if not df_mes.empty:
+            gasto_wil = df_mes[df_mes["user_id"] == "wil"]["valor_planeado"].sum()
+            gasto_ju = df_mes[df_mes["user_id"] == "ju"]["valor_planeado"].sum()
+            total_gastos = gasto_wil + gasto_ju
+            sobra = renda_mes - total_gastos
 
-        # --- CARTOES DE RESULTADO ---
-        st.divider()
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Renda Total", f"R$ {renda_total:,.2f}")
-        c2.metric("Total Gastos", f"R$ {total_gastos:,.2f}", delta=f"-{total_gastos:,.2f}", delta_color="inverse")
-        c3.metric("Saldo Sobrando", f"R$ {saldo_final:,.2f}", delta=f"{saldo_final:,.2f}")
-        c4.write("✅ Dados atualizados do Supabase")
+            # --- CARTOES ---
+            st.divider()
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Renda Total", f"R$ {renda_mes:,.2f}")
+            m2.metric("Total Despesas", f"R$ {total_gastos:,.2f}")
+            m3.metric("Sobrou no Mês", f"R$ {sobra:,.2f}", delta=f"{sobra:,.2f}")
 
-        st.divider()
-        st.subheader("Gráfico Comparativo por Categoria")
-        # Prepara dados para o gráfico comparando Wil e Ju por categoria
-        graf_data = df.groupby(["categoria", "user_id"])["valor_planeado"].sum().unstack().fillna(0)
-        st.bar_chart(graf_data)
+            st.divider()
+            st.subheader(f"Detalhamento de Gastos: {mes_nome}")
+            graf_data = df_mes.groupby(["categoria", "user_id"])["valor_planeado"].sum().unstack().fillna(0)
+            st.bar_chart(graf_data)
+            
+            st.write("### Lista de Despesas do Mês")
+            st.dataframe(df_mes[["data", "user_id", "categoria", "subcategoria", "valor_planeado"]], use_container_width=True)
+        else:
+            st.info(f"Não há despesas lançadas para {mes_nome} de {ano}.")
     else:
-        st.warning("Ainda não existem transações no banco de dados.")
+        st.warning("Banco de dados vazio.")
 
 with aba2:
-    st.header("👤 Área do Usuário & Recibos")
-    usuario = st.selectbox("Quem está lançando?", ["wil", "ju"])
-    
-    uploaded_file = st.file_uploader("Subir foto do recibo", type=["jpg", "png", "jpeg"])
-    if uploaded_file:
-        img = Image.open(uploaded_file)
+    st.header("👤 Novo Gasto com Foto")
+    user = st.selectbox("Lançar para:", ["wil", "ju"])
+    up = st.file_uploader("Foto do recibo", type=["jpg", "png", "jpeg"])
+    if up:
+        img = Image.open(up)
         st.image(img, width=250)
-        if st.button("Escanear com IA"):
-            with st.spinner("IA analisando..."):
+        if st.button("Analisar Recibo"):
+            with st.spinner("IA lendo..."):
                 prompt = "Extraia categoria e valor total deste recibo em JSON: {'categoria': '', 'valor': 0.0}"
                 response = model.generate_content([prompt, img])
-                st.write(response.text) # Mostra o resultado da leitura
+                st.write("Resultado da IA:", response.text)
