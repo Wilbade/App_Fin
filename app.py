@@ -98,49 +98,54 @@ with aba1:
         st.error(f"Erro ao conectar com o banco de dados: {e}")
 
 with aba2:
-    st.header("👤 Novo Gasto com Foto")
-    user = st.selectbox("Lançar para:", ["wil", "ju"])
-    up = st.file_uploader("Suba a foto do recibo aqui", type=["jpg", "png", "jpeg"])
-    
+    st.header("📸 Escanear Recibo com Gemini 2.5")
+    user = st.selectbox("Lançar para:", ["wil", "ju"], key="user_uploader")
+    up = st.file_uploader("Suba a foto do recibo", type=["jpg", "png", "jpeg"])
+
     if up:
         img = Image.open(up)
-        st.image(img, width=300, caption="Recibo carregado")
+        st.image(img, width=300, caption="Recibo Carregado")
         
-        if st.button("Analisar Recibo com IA"):
-            with st.spinner("A IA está lendo os dados..."):
+        if st.button("Analisar com IA"):
+            with st.spinner("O Gemini 2.5 está a processar..."):
                 try:
-                    # Prompt mais específico para evitar lixo no JSON
+                    # Usando o modelo que você confirmou que funciona
+                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    
                     prompt = """
-                    Analise este recibo e extraia APENAS um JSON puro (sem markdown ou blocos de código) com:
-                    {
-                        "categoria": "escolha uma entre (Alimentação, Moradia, Transporte, Lazer, Saúde, Outros)",
-                        "valor": 0.0,
-                        "descricao": "nome curto do local"
-                    }
+                    Analise este recibo e extraia:
+                    1. O valor total (numérico).
+                    2. A categoria (ex: Alimentação, Transporte, Habitação, Lazer).
+                    3. O nome do local/estabelecimento.
+                    Retorne APENAS um JSON puro:
+                    {"valor": 0.0, "categoria": "", "local": ""}
                     """
-                    # Chamada corrigida
+                    
                     response = model.generate_content([prompt, img])
                     
-                    # Limpeza simples caso a IA coloque blocos de código ```json
+                    # Limpeza do texto para evitar erros de JSON
                     texto_limpo = response.text.replace('```json', '').replace('```', '').strip()
                     dados = json.loads(texto_limpo)
                     
+                    # Exibição dos resultados para conferência
                     st.success("Leitura concluída!")
-                    st.json(dados)
-                    
-                    # Botão para salvar no Supabase após conferir
-                    if st.button("Confirmar e Salvar no Banco"):
-                        nova_transacao = {
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Valor", f"R$ {dados['valor']:.2f}")
+                    col2.metric("Categoria", dados['categoria'])
+                    col3.metric("Local", dados['local'])
+
+                    # Botão para gravar no banco de dados
+                    if st.button("Confirmar e Salvar no Orçamento"):
+                        novo_item = {
                             "user_id": user,
                             "categoria": dados['categoria'],
-                            "valor_planeado": dados['valor'],
-                            "data": datetime.now().strftime("%Y-%m-%d"),
-                            "subcategoria": dados.get('descricao', 'Importado via Foto')
+                            "valor_planeado": dados['valor'], # Ajustado para o nome da sua coluna
+                            "subcategoria": dados['local'],
+                            "data": datetime.now().strftime("%Y-%m-%d")
                         }
-                        supabase.table("transacoes").insert(nova_transacao).execute()
+                        supabase.table("transacoes").insert(novo_item).execute()
                         st.balloons()
-                        st.success("Salvo com sucesso!")
-                        
+                        st.success("Gravado com sucesso no Supabase!")
+
                 except Exception as e:
-                    st.error(f"Falha ao processar imagem. Erro: {e}")
-                    st.info("Dica: Verifique se sua GEMINI_API_KEY está correta nos Secrets do Streamlit.")
+                    st.error(f"Erro ao processar com Gemini 2.5: {e}")
